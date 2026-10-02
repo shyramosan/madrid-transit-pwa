@@ -1,0 +1,47 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: dark;
+  --bg: #0c1118;
+  --surface: #151c26;
+  --surface-2: #1d2734;
+  --text: #f7f9fb;
+  --muted: #a9b5c4;
+  --accent: #7fd5ff;
+  --line: #364556;
+  --good: #8ee7b5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(circle at top, #162131 0, var(--bg) 42%); color: var(--text); }
+button { font: inherit; }
+.shell { width: min(880px, calc(100% - 28px)); margin: 0 auto; padding: 42px 0 72px; }
+.hero { margin-bottom: 24px; }
+.eyebrow, .label { color: var(--muted); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; }
+h1 { margin: 6px 0 8px; font-size: clamp(2rem, 8vw, 4rem); line-height: .98; }
+.sub { color: var(--muted); max-width: 58ch; }
+.statusCard, .panel, .nextCard { background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: 22px; padding: 20px; margin: 16px 0; }
+.statusCard { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 12px; align-items: end; }
+.statusCard > div { display: grid; gap: 6px; }
+.statusCard strong { font-size: 1.35rem; }
+.statusCard button { border: 0; border-radius: 14px; padding: 12px 16px; background: var(--accent); color: #06202e; font-weight: 800; cursor: pointer; }
+.statusCard button:disabled { opacity: .6; cursor: wait; }
+.error { color: #ffb4b4; }
+.panel h2, .nextCard h2 { margin-top: 0; }
+.route { list-style: none; padding: 0; margin: 22px 0 4px; }
+.route li { position: relative; display: flex; align-items: center; min-height: 54px; padding-left: 34px; color: var(--muted); }
+.route li:not(:last-child)::after { content: ""; position: absolute; left: 9px; top: 31px; bottom: -23px; width: 2px; background: var(--line); }
+.route .dot { position: absolute; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--accent); }
+.route .target { color: var(--text); font-weight: 800; }
+.sectionHeading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.sectionHeading p { color: var(--muted); margin: -4px 0 12px; max-width: 60ch; }
+.badge { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; font-size: .75rem; color: var(--accent); white-space: nowrap; }
+.vehicleGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.vehicle { display: grid; gap: 5px; background: var(--surface-2); padding: 14px; border-radius: 15px; }
+.vehicle span { color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+.nextCard { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.nextCard p { color: var(--muted); margin-bottom: 0; }
+@media (max-width: 680px) {
+  .shell { padding-top: 26px; }
+  .statusCard { grid-template-columns: 1fr 1fr; }
+  .statusCard button { grid-column: 1 / -1; }
+  .sectionHeading { flex-direction: column-reverse; }
+}
