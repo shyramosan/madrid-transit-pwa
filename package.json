@@ -1,6 +1,6 @@
 {
   "name": "madrid-transit-pwa",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,11 +8,13 @@
     "start": "next start"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "next": "16.3.8",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
