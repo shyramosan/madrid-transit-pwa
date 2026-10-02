@@ -1,0 +1,10 @@
+{
+  "name": "Madrid Transit Lab",
+  "short_name": "Transit Lab",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c1118",
+  "theme_color": "#0c1118",
+  "lang": "es",
+  "description": "Transporte en tiempo real para Alcobendas, Sanse y Madrid"
+}
