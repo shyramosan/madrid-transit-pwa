@@ -11,15 +11,21 @@
 - [x] No afirmar C-4a/C-4b sin resolver el viaje
 
 ### P0-02 · Resolver rama y sentido
-- [ ] Importar GTFS estático de Cercanías
-- [ ] Cruzar `tripId` realtime con `trips.txt`
-- [ ] Resolver `route_id`, sentido, `stop_sequence`
-- [ ] Identificar trayecto Alcobendas → Chamartín
+- [x] Integración del GTFS estático oficial de Cercanías
+- [x] Cruce de `tripId` realtime con `trips.txt`
+- [x] Resolución de `route_id`, sentido y `stop_sequence`
+- [x] Filtro automático Alcobendas → Chamartín
+- [x] Cálculo de estación actual conocida y paradas restantes hasta Chamartín
+- [ ] Validación runtime/build en entorno ejecutable
+
+Endpoints:
+- `/api/renfe/resolve?tripId=...` → resuelve un viaje concreto contra GTFS.
+- `/api/renfe/c4a` → devuelve candidatos C4 activos cuyo recorrido contiene Alcobendas antes de Chamartín.
 
 ### P0-03 · Viaje activo
 - [ ] Acción “Voy en este tren”
 - [ ] Mostrar estación actual / siguiente
-- [ ] Calcular estaciones restantes
+- [ ] Calcular estaciones restantes en UI
 - [ ] Usar GPS del móvil como respaldo
 
 ### P0-04 · Alerta para bajar
@@ -32,3 +38,7 @@
 - [ ] Próximos trenes
 - [ ] Aviso 5/10 min antes
 - [ ] Después: cálculo por distancia andando
+
+## Regla de calidad
+
+No se mostrará “C-4a” basándonos únicamente en el texto `C4` del realtime. La rama se confirma por el recorrido GTFS y la secuencia real de paradas.
