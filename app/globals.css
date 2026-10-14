@@ -40,6 +40,11 @@ h2, h3 { margin-top: 0; }
 .activeJourney { border-color: color-mix(in srgb, var(--good) 55%, var(--line)); }
 .journeyLine { color: var(--muted); margin: 22px 0 4px; }
 .bigStatus { display: block; font-size: clamp(2.1rem, 9vw, 4.6rem); line-height: 1; margin-bottom: 24px; }
+.notificationCard { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; margin: 0 0 18px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); }
+.notificationCard strong { display: block; margin: 5px 0 3px; }
+.notificationCard p { margin: 0; color: var(--muted); font-size: .92rem; max-width: 54ch; }
+.liveAlert { position: sticky; top: 12px; z-index: 10; display: flex; justify-content: space-between; gap: 14px; align-items: center; margin: 16px 0; padding: 16px; background: var(--warning); color: #241700; border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,.28); }
+.liveAlert .ghostButton { color: #241700; border-color: rgba(36,23,0,.28); }
 .journeyFacts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .journeyFacts > div { display: grid; gap: 6px; background: var(--surface-2); border-radius: 14px; padding: 14px; }
 .ghostButton { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 12px; padding: 9px 12px; cursor: pointer; }
@@ -61,7 +66,8 @@ h2, h3 { margin-top: 0; }
   .statusCard { grid-template-columns: 1fr 1fr; }
   .statusCard button { grid-column: 1 / -1; }
   .sectionHeading { flex-direction: column-reverse; }
-  .candidateCard { grid-template-columns: 1fr; }
+  .candidateCard, .notificationCard { grid-template-columns: 1fr; }
   .primaryButton { width: 100%; }
   .journeyFacts { grid-template-columns: 1fr; }
+  .liveAlert { align-items: flex-start; }
 }
