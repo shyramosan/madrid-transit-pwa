@@ -31,12 +31,15 @@ Endpoints:
 - [ ] Usar GPS del móvil como respaldo
 
 ### P0-04 · Alerta para bajar
-- [ ] Solicitar permiso de notificaciones en contexto
-- [ ] Aviso 2 estaciones antes
-- [ ] Aviso 1 estación antes
-- [ ] Vibración cuando esté disponible
-- [ ] Evitar alertas duplicadas
-- [ ] Fallback visible si las notificaciones están bloqueadas
+- [x] Solicitar permiso de notificaciones en contexto
+- [x] Aviso 2 estaciones antes
+- [x] Aviso 1 estación antes
+- [x] Vibración cuando esté disponible
+- [x] Evitar alertas duplicadas por viaje/umbral
+- [x] Fallback visible si las notificaciones están bloqueadas
+- [x] Service worker para mostrar notificaciones del sistema cuando la app está activa
+- [ ] Validación real en Android/PWA
+- [ ] Push/background para garantizar alertas con la app completamente cerrada
 
 ### P0-05 · Aviso para salir
 - [ ] Próximos trenes
@@ -47,4 +50,4 @@ Endpoints:
 
 No se mostrará “C-4a” basándonos únicamente en el texto `C4` del realtime. La rama se confirma por el recorrido GTFS y la secuencia real de paradas.
 
-Las alertas de P0-04 no se consideran terminadas hasta probar permisos y comportamiento real en navegador/móvil.
+Las alertas de P0-04 no se consideran cerradas hasta probar permisos y comportamiento real en navegador/móvil. La implementación actual puede generar notificaciones del sistema mientras la app está activa; una garantía con la app totalmente cerrada requiere una arquitectura push/background adicional.
