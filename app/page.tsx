@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Stop = {
   stopId: string;
@@ -50,7 +50,10 @@ type C4AResponse = {
   candidates: Candidate[];
 };
 
+type NotificationState = "unsupported" | "default" | "granted" | "denied";
+
 const SELECTED_TRIP_KEY = "madrid-transit:selected-trip";
+const ALERTS_KEY = "madrid-transit:sent-alerts";
 
 function readableStatus(status: string | null): string {
   if (status === "STOPPED_AT") return "Parado en estación";
@@ -66,15 +69,60 @@ function stopsLabel(value: number | null): string {
   return `Faltan ${value} estaciones`;
 }
 
+function getSentAlerts(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(ALERTS_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberAlert(key: string) {
+  const sent = getSentAlerts();
+  sent.add(key);
+  window.localStorage.setItem(ALERTS_KEY, JSON.stringify([...sent]));
+}
+
+async function showSystemNotification(title: string, body: string) {
+  if (!("serviceWorker" in navigator)) return false;
+
+  const registration = await navigator.serviceWorker.ready;
+  await registration.showNotification(title, {
+    body,
+    tag: "madrid-transit-journey",
+    renotify: true,
+    icon: "/icon.svg",
+    badge: "/icon.svg",
+    data: { url: "/" },
+  });
+
+  return true;
+}
+
 export default function Home() {
   const [data, setData] = useState<C4AResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [notificationState, setNotificationState] =
+    useState<NotificationState>("default");
+  const [inlineAlert, setInlineAlert] = useState<string | null>(null);
+  const previousStopsRef = useRef<number | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(SELECTED_TRIP_KEY);
     if (saved) setSelectedTripId(saved);
+
+    if (!("Notification" in window)) {
+      setNotificationState("unsupported");
+    } else {
+      setNotificationState(Notification.permission);
+    }
+
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js");
+    }
   }, []);
 
   async function refresh() {
@@ -100,16 +148,32 @@ export default function Home() {
 
   function selectTrip(tripId: string) {
     setSelectedTripId(tripId);
+    previousStopsRef.current = null;
     window.localStorage.setItem(SELECTED_TRIP_KEY, tripId);
   }
 
   function endTrip() {
     setSelectedTripId(null);
+    setInlineAlert(null);
+    previousStopsRef.current = null;
     window.localStorage.removeItem(SELECTED_TRIP_KEY);
   }
 
+  async function requestNotifications() {
+    if (!("Notification" in window)) {
+      setNotificationState("unsupported");
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    setNotificationState(permission);
+  }
+
   const activeTrip = useMemo(
-    () => data?.candidates.find((candidate) => candidate.trip.tripId === selectedTripId) ?? null,
+    () =>
+      data?.candidates.find(
+        (candidate) => candidate.trip.tripId === selectedTripId,
+      ) ?? null,
     [data, selectedTripId],
   );
 
@@ -119,10 +183,45 @@ export default function Home() {
       )
     : -1;
 
+  useEffect(() => {
+    const remaining = activeTrip?.progress.stopsToChamartin;
+    const tripId = activeTrip?.trip.tripId;
+
+    if (remaining === null || remaining === undefined || !tripId) return;
+
+    const previous = previousStopsRef.current;
+    previousStopsRef.current = remaining;
+
+    if (remaining !== 2 && remaining !== 1) return;
+    if (previous !== null && previous < remaining) return;
+
+    const alertKey = `${tripId}:${remaining}`;
+    if (getSentAlerts().has(alertKey)) return;
+
+    const message =
+      remaining === 2
+        ? "Faltan 2 estaciones para Chamartín. Ve preparándote."
+        : "La siguiente es Chamartín. Prepárate para bajar.";
+
+    rememberAlert(alertKey);
+    setInlineAlert(message);
+
+    if ("vibrate" in navigator) {
+      navigator.vibrate(remaining === 1 ? [250, 120, 250] : [180, 100, 180]);
+    }
+
+    if (notificationState === "granted") {
+      void showSystemNotification(
+        remaining === 1 ? "🚆 Próxima parada: la tuya" : "🚆 Chamartín se acerca",
+        message,
+      );
+    }
+  }, [activeTrip, notificationState]);
+
   return (
     <main className="shell">
       <header className="hero">
-        <p className="eyebrow">MADRID TRANSIT LAB · v0.0.2</p>
+        <p className="eyebrow">MADRID TRANSIT LAB · v0.0.3</p>
         <h1>Alcobendas → Chamartín</h1>
         <p className="sub">
           Seguimiento real de C-4a. Datos oficiales primero, humo cero.
@@ -138,6 +237,19 @@ export default function Home() {
             </button>
           </div>
 
+          {inlineAlert ? (
+            <div className="liveAlert" role="alert">
+              <strong>{inlineAlert}</strong>
+              <button
+                className="ghostButton"
+                onClick={() => setInlineAlert(null)}
+                aria-label="Cerrar aviso"
+              >
+                Cerrar
+              </button>
+            </div>
+          ) : null}
+
           <p className="journeyLine">
             {activeTrip.trip.routeShortName ?? "C-4a"} ·{" "}
             {activeTrip.trip.tripHeadsign ?? "sentido Madrid"}
@@ -147,11 +259,36 @@ export default function Home() {
             {stopsLabel(activeTrip.progress.stopsToChamartin)}
           </strong>
 
+          <div className="notificationCard">
+            <div>
+              <span className="label">Avisos para bajar</span>
+              <strong>
+                {notificationState === "granted"
+                  ? "Notificaciones activadas"
+                  : notificationState === "denied"
+                    ? "Notificaciones bloqueadas"
+                    : notificationState === "unsupported"
+                      ? "No disponibles en este navegador"
+                      : "Pendientes de activar"}
+              </strong>
+              <p>
+                Aunque no haya permiso, mantendremos el aviso visible y la vibración
+                si el dispositivo la permite.
+              </p>
+            </div>
+            {notificationState === "default" ? (
+              <button className="primaryButton" onClick={() => void requestNotifications()}>
+                🔔 Activar avisos
+              </button>
+            ) : null}
+          </div>
+
           <div className="journeyFacts">
             <div>
               <span className="label">Ahora</span>
               <strong>
-                {activeTrip.progress.currentStop?.stopName ?? "Ubicación por confirmar"}
+                {activeTrip.progress.currentStop?.stopName ??
+                  "Ubicación por confirmar"}
               </strong>
             </div>
             <div>
@@ -197,11 +334,11 @@ export default function Home() {
           </ol>
 
           <div className="alertPreview">
-            <span className="badge">P0-04 PREPARADO</span>
+            <span className="badge">P0-04</span>
             <p>
-              La próxima fase usará este progreso para avisarte a 2 y 1 estación de
-              Chamartín. Todavía no activamos notificaciones hasta validar permisos y
-              ejecución real.
+              Avisaremos una sola vez a 2 estaciones y otra a 1 estación. Las claves
+              de aviso se guardan por viaje para evitar el festival de vibraciones cada
+              20 segundos.
             </p>
           </div>
         </section>
@@ -210,7 +347,9 @@ export default function Home() {
           <section className="statusCard" aria-live="polite">
             <div>
               <span className="label">Feed Renfe</span>
-              <strong>{loading ? "Actualizando…" : error ? "Error" : "Conectado"}</strong>
+              <strong>
+                {loading ? "Actualizando…" : error ? "Error" : "Conectado"}
+              </strong>
             </div>
             <div>
               <span className="label">C4 activos</span>
@@ -268,7 +407,9 @@ export default function Home() {
               </div>
             ) : (
               <div className="emptyState">
-                <strong>No hay candidatos Alcobendas → Chamartín ahora mismo.</strong>
+                <strong>
+                  No hay candidatos Alcobendas → Chamartín ahora mismo.
+                </strong>
                 <p>
                   Esto puede ser perfectamente normal según la hora. El feed seguirá
                   actualizándose cada 20 segundos.
@@ -281,10 +422,10 @@ export default function Home() {
 
       <section className="nextCard">
         <span className="badge">SIGUIENTE</span>
-        <h2>Alertas reales para bajar</h2>
+        <h2>Validación móvil + GPS de respaldo</h2>
         <p>
-          Permiso de notificaciones + vibración + regla de 2 estaciones / 1 estación +
-          protección contra avisos duplicados.
+          Probar permisos en Android/PWA y usar la ubicación del móvil para no depender
+          únicamente del stopId de Renfe.
         </p>
       </section>
     </main>
