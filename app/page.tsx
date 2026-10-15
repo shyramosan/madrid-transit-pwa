@@ -260,12 +260,22 @@ export default function Home() {
 
   return (
     <main className="shell">
-      <header className="hero">
-        <p className="eyebrow">MADRID TRANSIT LAB · v0.0.4</p>
-        <h1>{title}</h1>
-        <p className="sub">
-          Ruta C-4 con transbordo inteligente en Cantoblanco Universidad.
-        </p>
+      <header className="hero heroWithMascot">
+        <div>
+          <p className="eyebrow">MADRID TRANSIT LAB · v0.0.4</p>
+          <h1>{title}</h1>
+          <p className="sub">
+            Ruta C-4 con transbordo inteligente en Cantoblanco Universidad.
+          </p>
+        </div>
+        <img
+          className="mascot"
+          src="/mascot.webp"
+          alt=""
+          width="128"
+          height="128"
+          aria-hidden="true"
+        />
       </header>
 
       <div className="directionSwitch" role="group" aria-label="Dirección del viaje">
