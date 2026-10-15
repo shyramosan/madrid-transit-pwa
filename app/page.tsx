@@ -91,7 +91,6 @@ async function showSystemNotification(title: string, body: string) {
   await registration.showNotification(title, {
     body,
     tag: "madrid-transit-journey",
-    renotify: true,
     icon: "/icon.svg",
     badge: "/icon.svg",
     data: { url: "/" },
