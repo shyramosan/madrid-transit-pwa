@@ -79,3 +79,10 @@ h2, h3 { margin-top: 0; }
 .transferCard strong { display:block; font-size:1.35rem; margin:10px 0 4px; }
 .transferCard p { margin:0; color:var(--muted); }
 @media (max-width:680px){ .directionSwitch { grid-template-columns:1fr; } }
+
+.heroWithMascot { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+.mascot { width:96px; height:96px; object-fit:contain; flex:0 0 auto; filter:drop-shadow(0 8px 20px rgba(0,0,0,.18)); }
+@media (max-width:680px){
+  .mascot { width:72px; height:72px; }
+  .heroWithMascot { gap:10px; }
+}
