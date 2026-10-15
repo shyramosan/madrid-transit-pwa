@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+type Direction = "alcobendas-colmenar" | "colmenar-alcobendas";
+
 type Stop = {
   stopId: string;
   stopName: string;
@@ -11,6 +13,7 @@ type Stop = {
 };
 
 type Candidate = {
+  phase: 1 | 2;
   vehicle: {
     entityId: string | null;
     tripId: string | null;
@@ -30,30 +33,40 @@ type Candidate = {
     tripHeadsign: string | null;
     directionId: string | null;
   };
+  origin: Stop;
+  destination: Stop;
   progress: {
     currentStop: Stop | null;
     nextKnownStop: Stop | null;
-    chamartin: Stop | null;
-    stopsToChamartin: number | null;
+    stopsToDestination: number | null;
   };
   stops: Stop[];
 };
 
-type C4AResponse = {
-  source: {
-    realtime: string;
-    static: string;
-  };
+type JourneyResponse = {
   feedTimestamp: string | null;
+  direction: Direction;
+  requiresTransfer: true;
+  interchange: string;
   realtimeC4Count: number;
-  alcobendasToChamartinCount: number;
-  candidates: Candidate[];
+  legs: Array<{
+    phase: 1 | 2;
+    label: string;
+    candidates: Candidate[];
+  }>;
+};
+
+type ActiveSelection = {
+  tripId: string;
+  phase: 1 | 2;
+  destinationName: string;
 };
 
 type NotificationState = "unsupported" | "default" | "granted" | "denied";
 
-const SELECTED_TRIP_KEY = "madrid-transit:selected-trip";
+const ACTIVE_KEY = "madrid-transit:active-selection";
 const ALERTS_KEY = "madrid-transit:sent-alerts";
+const DIRECTION_KEY = "madrid-transit:direction";
 
 function readableStatus(status: string | null): string {
   if (status === "STOPPED_AT") return "Parado en estación";
@@ -62,9 +75,9 @@ function readableStatus(status: string | null): string {
   return "Estado desconocido";
 }
 
-function stopsLabel(value: number | null): string {
+function remainingLabel(value: number | null, destination: string): string {
   if (value === null) return "Calculando…";
-  if (value === 0) return "Estás en Chamartín";
+  if (value === 0) return `Estás en ${destination}`;
   if (value === 1) return "Falta 1 estación";
   return `Faltan ${value} estaciones`;
 }
@@ -85,8 +98,7 @@ function rememberAlert(key: string) {
 }
 
 async function showSystemNotification(title: string, body: string) {
-  if (!("serviceWorker" in navigator)) return false;
-
+  if (!("serviceWorker" in navigator)) return;
   const registration = await navigator.serviceWorker.ready;
   await registration.showNotification(title, {
     body,
@@ -95,43 +107,49 @@ async function showSystemNotification(title: string, body: string) {
     badge: "/icon.svg",
     data: { url: "/" },
   });
-
-  return true;
 }
 
 export default function Home() {
-  const [data, setData] = useState<C4AResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [direction, setDirection] = useState<Direction>("alcobendas-colmenar");
+  const [data, setData] = useState<JourneyResponse | null>(null);
+  const [active, setActive] = useState<ActiveSelection | null>(null);
   const [notificationState, setNotificationState] =
     useState<NotificationState>("default");
   const [inlineAlert, setInlineAlert] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const previousStopsRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(SELECTED_TRIP_KEY);
-    if (saved) setSelectedTripId(saved);
-
-    if (!("Notification" in window)) {
-      setNotificationState("unsupported");
-    } else {
-      setNotificationState(Notification.permission);
+    const savedDirection = window.localStorage.getItem(DIRECTION_KEY) as Direction | null;
+    if (savedDirection === "alcobendas-colmenar" || savedDirection === "colmenar-alcobendas") {
+      setDirection(savedDirection);
     }
+
+    try {
+      const savedActive = window.localStorage.getItem(ACTIVE_KEY);
+      if (savedActive) setActive(JSON.parse(savedActive) as ActiveSelection);
+    } catch {}
+
+    if (!("Notification" in window)) setNotificationState("unsupported");
+    else setNotificationState(Notification.permission);
 
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/sw.js");
     }
   }, []);
 
-  async function refresh() {
+  async function refresh(currentDirection = direction) {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/renfe/c4a", { cache: "no-store" });
+      const response = await fetch(
+        `/api/renfe/alcobendas-colmenar?direction=${currentDirection}`,
+        { cache: "no-store" },
+      );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setData((await response.json()) as C4AResponse);
+      setData((await response.json()) as JourneyResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo leer Renfe");
     } finally {
@@ -140,22 +158,37 @@ export default function Home() {
   }
 
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 20_000);
+    void refresh(direction);
+    const timer = window.setInterval(() => void refresh(direction), 20_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [direction]);
 
-  function selectTrip(tripId: string) {
-    setSelectedTripId(tripId);
+  function changeDirection(next: Direction) {
+    setDirection(next);
+    setActive(null);
+    setInlineAlert(null);
     previousStopsRef.current = null;
-    window.localStorage.setItem(SELECTED_TRIP_KEY, tripId);
+    window.localStorage.setItem(DIRECTION_KEY, next);
+    window.localStorage.removeItem(ACTIVE_KEY);
+  }
+
+  function selectTrain(candidate: Candidate) {
+    const next: ActiveSelection = {
+      tripId: candidate.trip.tripId,
+      phase: candidate.phase,
+      destinationName: candidate.destination.stopName,
+    };
+    setActive(next);
+    setInlineAlert(null);
+    previousStopsRef.current = null;
+    window.localStorage.setItem(ACTIVE_KEY, JSON.stringify(next));
   }
 
   function endTrip() {
-    setSelectedTripId(null);
+    setActive(null);
     setInlineAlert(null);
     previousStopsRef.current = null;
-    window.localStorage.removeItem(SELECTED_TRIP_KEY);
+    window.localStorage.removeItem(ACTIVE_KEY);
   }
 
   async function requestNotifications() {
@@ -163,30 +196,26 @@ export default function Home() {
       setNotificationState("unsupported");
       return;
     }
-
     const permission = await Notification.requestPermission();
     setNotificationState(permission);
   }
 
-  const activeTrip = useMemo(
-    () =>
-      data?.candidates.find(
-        (candidate) => candidate.trip.tripId === selectedTripId,
-      ) ?? null,
-    [data, selectedTripId],
+  const allCandidates = useMemo(
+    () => data?.legs.flatMap((leg) => leg.candidates) ?? [],
+    [data],
   );
 
-  const currentIndex = activeTrip?.progress.currentStop
-    ? activeTrip.stops.findIndex(
-        (stop) => stop.stopId === activeTrip.progress.currentStop?.stopId,
-      )
-    : -1;
+  const activeTrip = useMemo(
+    () => allCandidates.find((candidate) => candidate.trip.tripId === active?.tripId) ?? null,
+    [allCandidates, active],
+  );
 
   useEffect(() => {
-    const remaining = activeTrip?.progress.stopsToChamartin;
+    const remaining = activeTrip?.progress.stopsToDestination;
     const tripId = activeTrip?.trip.tripId;
+    const destination = activeTrip?.destination.stopName;
 
-    if (remaining === null || remaining === undefined || !tripId) return;
+    if (remaining === null || remaining === undefined || !tripId || !destination) return;
 
     const previous = previousStopsRef.current;
     previousStopsRef.current = remaining;
@@ -194,13 +223,16 @@ export default function Home() {
     if (remaining !== 2 && remaining !== 1) return;
     if (previous !== null && previous < remaining) return;
 
-    const alertKey = `${tripId}:${remaining}`;
+    const alertKey = `${tripId}:${destination}:${remaining}`;
     if (getSentAlerts().has(alertKey)) return;
 
+    const isTransfer = activeTrip.phase === 1;
     const message =
       remaining === 2
-        ? "Faltan 2 estaciones para Chamartín. Ve preparándote."
-        : "La siguiente es Chamartín. Prepárate para bajar.";
+        ? `Faltan 2 estaciones para ${destination}.`
+        : isTransfer
+          ? `La siguiente es ${destination}. Aquí haces transbordo.`
+          : `La siguiente es ${destination}. Prepárate para bajar.`;
 
     rememberAlert(alertKey);
     setInlineAlert(message);
@@ -211,56 +243,86 @@ export default function Home() {
 
     if (notificationState === "granted") {
       void showSystemNotification(
-        remaining === 1 ? "🚆 Próxima parada: la tuya" : "🚆 Chamartín se acerca",
+        remaining === 1
+          ? isTransfer
+            ? "🚆 Próxima parada: transbordo"
+            : "🚆 Próxima parada: la tuya"
+          : "🚆 Se acerca tu próxima acción",
         message,
       );
     }
   }, [activeTrip, notificationState]);
 
+  const title =
+    direction === "alcobendas-colmenar"
+      ? "Alcobendas → Colmenar Viejo"
+      : "Colmenar Viejo → Alcobendas";
+
   return (
     <main className="shell">
       <header className="hero">
-        <p className="eyebrow">MADRID TRANSIT LAB · v0.0.3</p>
-        <h1>Alcobendas → Chamartín</h1>
+        <p className="eyebrow">MADRID TRANSIT LAB · v0.0.4</p>
+        <h1>{title}</h1>
         <p className="sub">
-          Seguimiento real de C-4a. Datos oficiales primero, humo cero.
+          Ruta C-4 con transbordo inteligente en Cantoblanco Universidad.
         </p>
       </header>
+
+      <div className="directionSwitch" role="group" aria-label="Dirección del viaje">
+        <button
+          className={direction === "alcobendas-colmenar" ? "active" : ""}
+          onClick={() => changeDirection("alcobendas-colmenar")}
+        >
+          Alcobendas → Colmenar
+        </button>
+        <button
+          className={direction === "colmenar-alcobendas" ? "active" : ""}
+          onClick={() => changeDirection("colmenar-alcobendas")}
+        >
+          Colmenar → Alcobendas
+        </button>
+      </div>
+
+      <section className="transferCard">
+        <span className="badge">1 TRANSBORDO</span>
+        <strong>{data?.interchange ?? "Cantoblanco Universidad"}</strong>
+        <p>
+          C-4a y C-4b se separan aquí. La app te avisará para bajar y cambiar de tren.
+        </p>
+      </section>
 
       {activeTrip ? (
         <section className="activeJourney" aria-live="polite">
           <div className="activeTopline">
-            <span className="badge">VIAJE ACTIVO</span>
-            <button className="ghostButton" onClick={endTrip}>
-              Finalizar
-            </button>
+            <span className="badge">
+              {activeTrip.phase === 1 ? "TRAMO 1 · TRANSBORDO" : "TRAMO 2 · DESTINO"}
+            </span>
+            <button className="ghostButton" onClick={endTrip}>Finalizar tramo</button>
           </div>
 
           {inlineAlert ? (
             <div className="liveAlert" role="alert">
               <strong>{inlineAlert}</strong>
-              <button
-                className="ghostButton"
-                onClick={() => setInlineAlert(null)}
-                aria-label="Cerrar aviso"
-              >
+              <button className="ghostButton" onClick={() => setInlineAlert(null)}>
                 Cerrar
               </button>
             </div>
           ) : null}
 
           <p className="journeyLine">
-            {activeTrip.trip.routeShortName ?? "C-4a"} ·{" "}
-            {activeTrip.trip.tripHeadsign ?? "sentido Madrid"}
+            {activeTrip.origin.stopName} → {activeTrip.destination.stopName}
           </p>
 
           <strong className="bigStatus">
-            {stopsLabel(activeTrip.progress.stopsToChamartin)}
+            {remainingLabel(
+              activeTrip.progress.stopsToDestination,
+              activeTrip.destination.stopName,
+            )}
           </strong>
 
           <div className="notificationCard">
             <div>
-              <span className="label">Avisos para bajar</span>
+              <span className="label">Avisos</span>
               <strong>
                 {notificationState === "granted"
                   ? "Notificaciones activadas"
@@ -271,8 +333,7 @@ export default function Home() {
                       : "Pendientes de activar"}
               </strong>
               <p>
-                Aunque no haya permiso, mantendremos el aviso visible y la vibración
-                si el dispositivo la permite.
+                Aviso a 2 estaciones y a 1. En el primer tramo te recordaremos que toca transbordo.
               </p>
             </div>
             {notificationState === "default" ? (
@@ -285,16 +346,11 @@ export default function Home() {
           <div className="journeyFacts">
             <div>
               <span className="label">Ahora</span>
-              <strong>
-                {activeTrip.progress.currentStop?.stopName ??
-                  "Ubicación por confirmar"}
-              </strong>
+              <strong>{activeTrip.progress.currentStop?.stopName ?? "Ubicación por confirmar"}</strong>
             </div>
             <div>
               <span className="label">Siguiente</span>
-              <strong>
-                {activeTrip.progress.nextKnownStop?.stopName ?? "Calculando…"}
-              </strong>
+              <strong>{activeTrip.progress.nextKnownStop?.stopName ?? "Calculando…"}</strong>
             </div>
             <div>
               <span className="label">Estado</span>
@@ -303,128 +359,101 @@ export default function Home() {
           </div>
 
           <ol className="route activeRoute">
-            {activeTrip.stops.map((stop, index) => {
-              const isPast = currentIndex >= 0 && index < currentIndex;
-              const isCurrent = currentIndex === index;
-              const isTarget = stop.stopName
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase()
-                .includes("chamartin");
-
+            {activeTrip.stops.map((stop) => {
+              const isCurrent = stop.stopId === activeTrip.progress.currentStop?.stopId;
+              const isTarget = stop.stopId === activeTrip.destination.stopId;
               return (
                 <li
                   key={`${stop.stopId}-${stop.stopSequence}`}
-                  className={[
-                    isPast ? "past" : "",
-                    isCurrent ? "current" : "",
-                    isTarget ? "target" : "",
-                  ]
+                  className={[isCurrent ? "current" : "", isTarget ? "target" : ""]
                     .filter(Boolean)
                     .join(" ")}
                 >
                   <span className="dot" aria-hidden="true" />
                   <span>{stop.stopName}</span>
                   {isCurrent ? <b> ← estás aquí</b> : null}
-                  {isTarget ? <b> 🎯</b> : null}
+                  {isTarget ? <b>{activeTrip.phase === 1 ? " 🔁" : " 🎯"}</b> : null}
                 </li>
               );
             })}
           </ol>
-
-          <div className="alertPreview">
-            <span className="badge">P0-04</span>
-            <p>
-              Avisaremos una sola vez a 2 estaciones y otra a 1 estación. Las claves
-              de aviso se guardan por viaje para evitar el festival de vibraciones cada
-              20 segundos.
-            </p>
-          </div>
         </section>
       ) : (
         <>
-          <section className="statusCard" aria-live="polite">
+          <section className="statusCard">
             <div>
               <span className="label">Feed Renfe</span>
-              <strong>
-                {loading ? "Actualizando…" : error ? "Error" : "Conectado"}
-              </strong>
+              <strong>{loading ? "Actualizando…" : error ? "Error" : "Conectado"}</strong>
             </div>
             <div>
               <span className="label">C4 activos</span>
               <strong>{data?.realtimeC4Count ?? "—"}</strong>
             </div>
             <div>
-              <span className="label">Hacia Chamartín</span>
-              <strong>{data?.alcobendasToChamartinCount ?? "—"}</strong>
+              <span className="label">Transbordo</span>
+              <strong>Cantoblanco</strong>
             </div>
-            <button onClick={() => void refresh()} disabled={loading}>
-              Actualizar
-            </button>
+            <button onClick={() => void refresh(direction)} disabled={loading}>Actualizar</button>
           </section>
 
-          {error ? (
-            <p className="error">No hemos podido consultar el feed: {error}</p>
-          ) : null}
+          {error ? <p className="error">{error}</p> : null}
 
-          <section className="panel">
-            <div className="sectionHeading">
-              <div>
-                <h2>Trenes compatibles ahora</h2>
-                <p>
-                  Solo mostramos C4 cuyo recorrido GTFS pasa por Alcobendas antes de
-                  Chamartín.
-                </p>
+          {(data?.legs ?? []).map((leg) => (
+            <section className="panel" key={leg.phase}>
+              <div className="sectionHeading">
+                <div>
+                  <h2>{leg.phase === 1 ? "1. Primer tren" : "2. Después del transbordo"}</h2>
+                  <p>{leg.label}</p>
+                </div>
+                <span className="badge">{leg.candidates.length} activos</span>
               </div>
-              <span className="badge">P0-03</span>
-            </div>
 
-            {data?.candidates.length ? (
-              <div className="candidateList">
-                {data.candidates.map((candidate) => (
-                  <article className="candidateCard" key={candidate.trip.tripId}>
-                    <div>
-                      <span className="label">C-4a detectada por recorrido</span>
-                      <h3>
-                        {candidate.progress.currentStop?.stopName ??
-                          candidate.trip.tripHeadsign ??
-                          "Tren C4"}
-                      </h3>
-                      <p>
-                        {readableStatus(candidate.vehicle.currentStatus)} ·{" "}
-                        {stopsLabel(candidate.progress.stopsToChamartin)}
-                      </p>
-                    </div>
-                    <button
-                      className="primaryButton"
-                      onClick={() => selectTrip(candidate.trip.tripId)}
-                    >
-                      ▶ Voy en este tren
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="emptyState">
-                <strong>
-                  No hay candidatos Alcobendas → Chamartín ahora mismo.
-                </strong>
-                <p>
-                  Esto puede ser perfectamente normal según la hora. El feed seguirá
-                  actualizándose cada 20 segundos.
-                </p>
-              </div>
-            )}
-          </section>
+              {leg.candidates.length ? (
+                <div className="candidateList">
+                  {leg.candidates.map((candidate) => (
+                    <article className="candidateCard" key={candidate.trip.tripId}>
+                      <div>
+                        <span className="label">
+                          {candidate.trip.tripHeadsign ?? candidate.trip.routeShortName ?? "C-4"}
+                        </span>
+                        <h3>
+                          {candidate.progress.currentStop?.stopName ??
+                            `Hacia ${candidate.destination.stopName}`}
+                        </h3>
+                        <p>
+                          {readableStatus(candidate.vehicle.currentStatus)} ·{" "}
+                          {remainingLabel(
+                            candidate.progress.stopsToDestination,
+                            candidate.destination.stopName,
+                          )}
+                        </p>
+                      </div>
+                      <button
+                        className="primaryButton"
+                        onClick={() => selectTrain(candidate)}
+                      >
+                        ▶ Voy en este tren
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="emptyState">
+                  <strong>No vemos un tren de este tramo ahora mismo.</strong>
+                  <p>El feed se refresca cada 20 segundos.</p>
+                </div>
+              )}
+            </section>
+          ))}
         </>
       )}
 
       <section className="nextCard">
         <span className="badge">SIGUIENTE</span>
-        <h2>Validación móvil + GPS de respaldo</h2>
+        <h2>Elegir automáticamente el mejor transbordo</h2>
         <p>
-          Probar permisos en Android/PWA y usar la ubicación del móvil para no depender
-          únicamente del stopId de Renfe.
+          El siguiente paso será cruzar horarios/ETA de ambos tramos para decirte no solo qué tren tomar,
+          sino cuál te deja menos espera en Cantoblanco.
         </p>
       </section>
     </main>
