@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type Direction = "alcobendas-colmenar" | "colmenar-alcobendas";
+type Direction = "alcobendas-colmenar" | "colmenar-alcobendas" | "alcobendas-sol" | "sol-alcobendas" | "colmenar-sol" | "sol-colmenar";
 
 type Stop = {
   stopId: string;
@@ -46,9 +46,10 @@ type Candidate = {
 type JourneyResponse = {
   feedTimestamp: string | null;
   direction: Direction;
-  requiresTransfer: true;
-  interchange: string;
+  requiresTransfer: boolean;
+  interchange: string | null;
   realtimeC4Count: number;
+  corridor: string[];
   legs: Array<{
     phase: 1 | 2;
     label: string;
@@ -122,7 +123,15 @@ export default function Home() {
 
   useEffect(() => {
     const savedDirection = window.localStorage.getItem(DIRECTION_KEY) as Direction | null;
-    if (savedDirection === "alcobendas-colmenar" || savedDirection === "colmenar-alcobendas") {
+    const allowedDirections: Direction[] = [
+      "alcobendas-colmenar",
+      "colmenar-alcobendas",
+      "alcobendas-sol",
+      "sol-alcobendas",
+      "colmenar-sol",
+      "sol-colmenar",
+    ];
+    if (savedDirection && allowedDirections.includes(savedDirection)) {
       setDirection(savedDirection);
     }
 
@@ -226,7 +235,7 @@ export default function Home() {
     const alertKey = `${tripId}:${destination}:${remaining}`;
     if (getSentAlerts().has(alertKey)) return;
 
-    const isTransfer = activeTrip.phase === 1;
+    const isTransfer = Boolean(data?.requiresTransfer && activeTrip.phase === 1);
     const message =
       remaining === 2
         ? `Faltan 2 estaciones para ${destination}.`
@@ -253,10 +262,14 @@ export default function Home() {
     }
   }, [activeTrip, notificationState]);
 
-  const title =
-    direction === "alcobendas-colmenar"
-      ? "Alcobendas → Colmenar Viejo"
-      : "Colmenar Viejo → Alcobendas";
+  const title = {
+    "alcobendas-colmenar": "Alcobendas → Colmenar Viejo",
+    "colmenar-alcobendas": "Colmenar Viejo → Alcobendas",
+    "alcobendas-sol": "Alcobendas → Sol",
+    "sol-alcobendas": "Sol → Alcobendas",
+    "colmenar-sol": "Colmenar Viejo → Sol",
+    "sol-colmenar": "Sol → Colmenar Viejo",
+  }[direction];
 
   return (
     <main className="shell">
@@ -278,27 +291,62 @@ export default function Home() {
         />
       </header>
 
-      <div className="directionSwitch" role="group" aria-label="Dirección del viaje">
-        <button
-          className={direction === "alcobendas-colmenar" ? "active" : ""}
-          onClick={() => changeDirection("alcobendas-colmenar")}
-        >
-          Alcobendas → Colmenar
-        </button>
-        <button
-          className={direction === "colmenar-alcobendas" ? "active" : ""}
-          onClick={() => changeDirection("colmenar-alcobendas")}
-        >
-          Colmenar → Alcobendas
-        </button>
+      <div className="directionSwitch routePicker" role="group" aria-label="Trayecto">
+        {([
+          ["alcobendas-sol", "Alcobendas → Sol"],
+          ["sol-alcobendas", "Sol → Alcobendas"],
+          ["colmenar-sol", "Colmenar → Sol"],
+          ["sol-colmenar", "Sol → Colmenar"],
+          ["alcobendas-colmenar", "Alcobendas → Colmenar"],
+          ["colmenar-alcobendas", "Colmenar → Alcobendas"],
+        ] as Array<[Direction, string]>).map(([value, label]) => (
+          <button
+            key={value}
+            className={direction === value ? "active" : ""}
+            onClick={() => changeDirection(value)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <section className="transferCard">
-        <span className="badge">1 TRANSBORDO</span>
-        <strong>{data?.interchange ?? "Cantoblanco Universidad"}</strong>
+        <span className="badge">
+          {data?.requiresTransfer ? "1 TRANSBORDO" : "DIRECTO"}
+        </span>
+        <strong>
+          {data?.requiresTransfer
+            ? data.interchange ?? "Cantoblanco Universidad"
+            : "C-4 · tronco central"}
+        </strong>
         <p>
-          C-4a y C-4b se separan aquí. La app te avisará para bajar y cambiar de tren.
+          {data?.requiresTransfer
+            ? "C-4a y C-4b se separan en Cantoblanco. La app te avisará para cambiar de tren."
+            : "Fuencarral → Chamartín → Nuevos Ministerios → Sol, sin cambiar de tren."}
         </p>
+        <div className="corridorPills" aria-label="Estaciones cubiertas">
+          {(data?.corridor ?? [
+            "Alcobendas-S.S. de los Reyes",
+            "Valdelasfuentes",
+            "Universidad P. Comillas",
+            "Cantoblanco Universidad",
+            "Fuencarral",
+            "Chamartín-Clara Campoamor",
+            "Nuevos Ministerios",
+            "Sol",
+          ]).map((station) => (
+            <span
+              key={station}
+              className={
+                station.includes("Nuevos Ministerios") || station === "Sol"
+                  ? "stationPill featured"
+                  : "stationPill"
+              }
+            >
+              {station}
+            </span>
+          ))}
+        </div>
       </section>
 
       {activeTrip ? (
@@ -343,7 +391,9 @@ export default function Home() {
                       : "Pendientes de activar"}
               </strong>
               <p>
-                Aviso a 2 estaciones y a 1. En el primer tramo te recordaremos que toca transbordo.
+{data?.requiresTransfer
+                  ? "Aviso a 2 estaciones y a 1. En el primer tramo te recordaremos que toca transbordo."
+                  : "Aviso a 2 estaciones y a 1 para tu destino, sin transbordo."}
               </p>
             </div>
             {notificationState === "default" ? (
