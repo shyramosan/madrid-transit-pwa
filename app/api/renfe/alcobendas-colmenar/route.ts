@@ -10,7 +10,7 @@ import { resolveTrip, type ResolvedTrip, type ResolvedStop } from "@/lib/gtfs";
 
 export const dynamic = "force-dynamic";
 
-type Direction = "alcobendas-colmenar" | "colmenar-alcobendas";
+type Direction = "alcobendas-colmenar" | "colmenar-alcobendas" | "alcobendas-sol" | "sol-alcobendas" | "colmenar-sol" | "sol-colmenar";
 
 function normalize(value: string): string {
   return value
@@ -21,20 +21,21 @@ function normalize(value: string): string {
     .trim();
 }
 
-function findStopIndex(stops: ResolvedStop[], kind: "alcobendas" | "cantoblanco" | "colmenar") {
+function findStopIndex(stops: ResolvedStop[], kind: "alcobendas" | "cantoblanco" | "colmenar" | "sol") {
   return stops.findIndex((stop) => {
     const name = normalize(stop.stopName);
     if (kind === "alcobendas") return name.includes("alcobendas");
     if (kind === "cantoblanco") return name.includes("cantoblanco");
-    return name.includes("colmenar viejo");
+    if (kind === "colmenar") return name.includes("colmenar viejo");
+    return name === "sol" || name.includes("sol");
   });
 }
 
 function buildLeg(
   trip: ResolvedTrip,
   vehicle: ReturnType<typeof normalizeVehicle>,
-  originKind: "alcobendas" | "cantoblanco" | "colmenar",
-  destinationKind: "alcobendas" | "cantoblanco" | "colmenar",
+  originKind: "alcobendas" | "cantoblanco" | "colmenar" | "sol",
+  destinationKind: "alcobendas" | "cantoblanco" | "colmenar" | "sol",
   phase: 1 | 2,
 ) {
   const originIndex = findStopIndex(trip.stops, originKind);
@@ -85,10 +86,17 @@ function buildLeg(
 
 export async function GET(request: NextRequest) {
   const directionParam = request.nextUrl.searchParams.get("direction");
-  const direction: Direction =
-    directionParam === "colmenar-alcobendas"
-      ? "colmenar-alcobendas"
-      : "alcobendas-colmenar";
+  const allowed: Direction[] = [
+    "alcobendas-colmenar",
+    "colmenar-alcobendas",
+    "alcobendas-sol",
+    "sol-alcobendas",
+    "colmenar-sol",
+    "sol-colmenar",
+  ];
+  const direction: Direction = allowed.includes(directionParam as Direction)
+    ? (directionParam as Direction)
+    : "alcobendas-colmenar";
 
   try {
     const feed = await fetchJson<RenfeFeed>(RENFE_VEHICLES_URL);
@@ -106,20 +114,43 @@ export async function GET(request: NextRequest) {
 
     const leg1 = [];
     const leg2 = [];
+    let requiresTransfer = false;
+    let interchange: string | null = null;
+    let labels: [string, string?] = [""];
 
     for (const { vehicle, trip } of resolved) {
       if (!trip) continue;
 
       if (direction === "alcobendas-colmenar") {
+        requiresTransfer = true;
+        interchange = "Cantoblanco Universidad";
+        labels = ["Alcobendas → Cantoblanco", "Cantoblanco → Colmenar Viejo"];
         const first = buildLeg(trip, vehicle, "alcobendas", "cantoblanco", 1);
         const second = buildLeg(trip, vehicle, "cantoblanco", "colmenar", 2);
         if (first) leg1.push(first);
         if (second) leg2.push(second);
-      } else {
+      } else if (direction === "colmenar-alcobendas") {
+        requiresTransfer = true;
+        interchange = "Cantoblanco Universidad";
+        labels = ["Colmenar Viejo → Cantoblanco", "Cantoblanco → Alcobendas"];
         const first = buildLeg(trip, vehicle, "colmenar", "cantoblanco", 1);
         const second = buildLeg(trip, vehicle, "cantoblanco", "alcobendas", 2);
         if (first) leg1.push(first);
         if (second) leg2.push(second);
+      } else {
+        const config = {
+          "alcobendas-sol": ["alcobendas", "sol", "Alcobendas → Sol"],
+          "sol-alcobendas": ["sol", "alcobendas", "Sol → Alcobendas"],
+          "colmenar-sol": ["colmenar", "sol", "Colmenar Viejo → Sol"],
+          "sol-colmenar": ["sol", "colmenar", "Sol → Colmenar Viejo"],
+        }[direction] as [
+          "alcobendas" | "colmenar" | "sol",
+          "alcobendas" | "colmenar" | "sol",
+          string,
+        ];
+        labels = [config[2]];
+        const direct = buildLeg(trip, vehicle, config[0], config[1], 1);
+        if (direct) leg1.push(direct);
       }
     }
 
@@ -130,26 +161,24 @@ export async function GET(request: NextRequest) {
       },
       feedTimestamp: feed.header?.timestamp ?? null,
       direction,
-      requiresTransfer: true,
-      interchange: "Cantoblanco Universidad",
+      requiresTransfer,
+      interchange,
       realtimeC4Count: realtime.length,
+      corridor: [
+        "Alcobendas-S.S. de los Reyes",
+        "Valdelasfuentes",
+        "Universidad P. Comillas",
+        "Cantoblanco Universidad",
+        "Fuencarral",
+        "Chamartín-Clara Campoamor",
+        "Nuevos Ministerios",
+        "Sol",
+      ],
       legs: [
-        {
-          phase: 1,
-          label:
-            direction === "alcobendas-colmenar"
-              ? "Alcobendas → Cantoblanco"
-              : "Colmenar Viejo → Cantoblanco",
-          candidates: leg1,
-        },
-        {
-          phase: 2,
-          label:
-            direction === "alcobendas-colmenar"
-              ? "Cantoblanco → Colmenar Viejo"
-              : "Cantoblanco → Alcobendas",
-          candidates: leg2,
-        },
+        { phase: 1, label: labels[0], candidates: leg1 },
+        ...(requiresTransfer
+          ? [{ phase: 2, label: labels[1], candidates: leg2 }]
+          : []),
       ],
     });
   } catch (error) {
