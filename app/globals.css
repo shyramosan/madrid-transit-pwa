@@ -86,3 +86,9 @@ h2, h3 { margin-top: 0; }
   .mascot { width:72px; height:72px; }
   .heroWithMascot { gap:10px; }
 }
+
+.routePicker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.corridorPills { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.stationPill { display:inline-flex; align-items:center; min-height:30px; padding:6px 10px; border-radius:999px; background:var(--surface-2); color:var(--muted); border:1px solid var(--line); font-size:.84rem; }
+.stationPill.featured { color:var(--text); border-color:color-mix(in srgb, var(--accent) 60%, var(--line)); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent) inset; }
+@media (max-width:680px){ .routePicker { grid-template-columns:1fr 1fr; } }
