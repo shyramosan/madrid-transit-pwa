@@ -273,7 +273,7 @@ export default function Home() {
 
   return (
     <main className="shell">
-      <header className="hero heroWithMascot">
+      <nav className="modeNav" aria-label="Modo de transporte">\n        <a href="/" className="active">🚆 Cercanías</a>\n        <a href="/bus">🚌 Bus</a>\n      </nav>\n\n      <header className="hero heroWithMascot">
         <div>
           <p className="eyebrow">MADRID TRANSIT LAB · v0.0.4</p>
           <h1>{title}</h1>
